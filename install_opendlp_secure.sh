@@ -12,14 +12,37 @@
 # - Security monitoring tools
 #
 # Usage: 
-#   curl -fsSL https://raw.githubusercontent.com/aimarketingflow/opendlp/main/opendlp-linux/install_opendlp_secure.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/aimarketingflow/pi-security-bot/verbose-installer/install_opendlp_secure.sh | bash
 #   OR
-#   bash install_opendlp_secure.sh
+#   bash install_opendlp_secure.sh [--resume STEP] [--verbose]
+#
+# Options:
+#   --resume STEP    Resume from specific step (system_hardening, monitoring, clone, install)
+#   --verbose        Show detailed output (don't redirect to log)
 #
 # Created: March 23, 2026
-# Version: 1.0.0
+# Version: 1.1.0-verbose
 
 set -e  # Exit on error
+
+# Parse arguments
+RESUME_FROM=""
+VERBOSE=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --resume)
+            RESUME_FROM="$2"
+            shift 2
+            ;;
+        --verbose)
+            VERBOSE=true
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 # Colors for output
 RED='\033[0;31m'
@@ -288,7 +311,12 @@ harden_system() {
     log "Applying system hardening"
     
     # Kernel hardening
-    sudo tee -a /etc/sysctl.conf > /dev/null << EOF
+    print_step "  [1/4] Configuring kernel parameters (sysctl)..."
+    if $VERBOSE; then
+        sudo tee -a /etc/sysctl.conf << EOF
+    else
+        sudo tee -a /etc/sysctl.conf > /dev/null << EOF
+    fi
 
 # OpenDLP Security Hardening - $(date)
 net.ipv4.ip_forward = 0
@@ -308,15 +336,27 @@ net.ipv4.conf.all.rp_filter = 1
 EOF
     
     # Apply sysctl settings
-    sudo sysctl -p >> "$LOG_FILE" 2>&1
+    print_step "  [2/4] Applying sysctl settings..."
+    if $VERBOSE; then
+        sudo sysctl -p
+    else
+        sudo sysctl -p >> "$LOG_FILE" 2>&1
+    fi
     
     # Secure shared memory
+    print_step "  [3/4] Securing shared memory..."
     if ! grep -q "tmpfs /run/shm" /etc/fstab; then
         echo "tmpfs /run/shm tmpfs defaults,noexec,nosuid 0 0" | sudo tee -a /etc/fstab > /dev/null
     fi
     
     # Configure automatic security updates
-    sudo dpkg-reconfigure -plow unattended-upgrades >> "$LOG_FILE" 2>&1
+    print_step "  [4/4] Configuring automatic security updates..."
+    if $VERBOSE; then
+        echo "Configuring unattended-upgrades (this may show a dialog)..."
+        sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -plow unattended-upgrades
+    else
+        sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -plow unattended-upgrades >> "$LOG_FILE" 2>&1
+    fi
     
     print_step "✓ System hardened"
     log "System hardening complete"
@@ -327,12 +367,23 @@ setup_monitoring() {
     log "Setting up monitoring tools"
     
     # Initialize AIDE (file integrity monitoring)
-    print_step "  Initializing AIDE database (this may take 5-10 minutes)..."
-    sudo aideinit >> "$LOG_FILE" 2>&1
+    print_step "  [1/3] Initializing AIDE database (this may take 5-10 minutes)..."
+    echo "         Scanning and hashing all system files..."
+    if $VERBOSE; then
+        sudo aideinit
+    else
+        sudo aideinit >> "$LOG_FILE" 2>&1
+    fi
     sudo mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db 2>/dev/null || true
+    print_step "         ✓ AIDE database created"
     
     # Update rkhunter
-    sudo rkhunter --update >> "$LOG_FILE" 2>&1
+    print_step "  [2/3] Updating rkhunter database..."
+    if $VERBOSE; then
+        sudo rkhunter --update
+    else
+        sudo rkhunter --update >> "$LOG_FILE" 2>&1
+    fi
     
     # Create daily security scan script
     sudo tee /etc/cron.daily/opendlp-security-scan > /dev/null << 'EOF'
@@ -359,6 +410,7 @@ echo "Banned IPs:" >> "$LOG_FILE"
 echo "=== Scan Complete ===" >> "$LOG_FILE"
 EOF
     
+    print_step "  [3/3] Creating daily security scan script..."
     sudo chmod +x /etc/cron.daily/opendlp-security-scan
     
     print_step "✓ Monitoring configured"
@@ -585,24 +637,86 @@ main() {
     
     check_root
     check_platform
-    get_user_input
+    
+    # Skip user input if resuming
+    if [[ -z "$RESUME_FROM" ]]; then
+        get_user_input
+    else
+        print_warning "Resuming from step: $RESUME_FROM"
+        # Load config from previous run if exists
+        if [[ -f /tmp/opendlp_install_config ]]; then
+            source /tmp/opendlp_install_config
+        else
+            print_error "No previous config found. Run without --resume first."
+            exit 1
+        fi
+    fi
     
     echo ""
     print_step "Starting installation..."
     echo "Installation log: $LOG_FILE"
+    if $VERBOSE; then
+        echo "Verbose mode: ON"
+    fi
     echo ""
     
-    update_system
-    install_dependencies
-    configure_ssh
-    setup_firewall
-    setup_fail2ban
-    harden_system
-    setup_monitoring
-    clone_opendlp
-    install_opendlp
-    create_systemd_service
-    create_helper_scripts
+    # Save config for resume
+    cat > /tmp/opendlp_install_config << EOF
+MAC_IP="$MAC_IP"
+ALERT_EMAIL="$ALERT_EMAIL"
+SSH_PORT=$SSH_PORT
+INSTALL_DIR="$INSTALL_DIR"
+VENV_DIR="$VENV_DIR"
+LOG_FILE="$LOG_FILE"
+EOF
+    
+    # Run steps based on resume point
+    case "$RESUME_FROM" in
+        "")
+            update_system
+            install_dependencies
+            configure_ssh
+            setup_firewall
+            setup_fail2ban
+            harden_system
+            setup_monitoring
+            clone_opendlp
+            install_opendlp
+            create_systemd_service
+            create_helper_scripts
+            ;;
+        "system_hardening"|"harden")
+            harden_system
+            setup_monitoring
+            clone_opendlp
+            install_opendlp
+            create_systemd_service
+            create_helper_scripts
+            ;;
+        "monitoring"|"monitor")
+            setup_monitoring
+            clone_opendlp
+            install_opendlp
+            create_systemd_service
+            create_helper_scripts
+            ;;
+        "clone")
+            clone_opendlp
+            install_opendlp
+            create_systemd_service
+            create_helper_scripts
+            ;;
+        "install")
+            install_opendlp
+            create_systemd_service
+            create_helper_scripts
+            ;;
+        *)
+            print_error "Unknown resume point: $RESUME_FROM"
+            print_error "Valid options: system_hardening, monitoring, clone, install"
+            exit 1
+            ;;
+    esac
     
     print_summary
     
