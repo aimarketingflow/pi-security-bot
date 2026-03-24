@@ -313,10 +313,7 @@ harden_system() {
     # Kernel hardening
     print_step "  [1/4] Configuring kernel parameters (sysctl)..."
     if $VERBOSE; then
-        sudo tee -a /etc/sysctl.conf << EOF
-    else
-        sudo tee -a /etc/sysctl.conf > /dev/null << EOF
-    fi
+        sudo tee -a /etc/sysctl.conf << 'EOF'
 
 # OpenDLP Security Hardening - $(date)
 net.ipv4.ip_forward = 0
@@ -334,6 +331,26 @@ net.ipv6.conf.all.accept_source_route = 0
 net.ipv4.conf.all.log_martians = 1
 net.ipv4.conf.all.rp_filter = 1
 EOF
+    else
+        sudo tee -a /etc/sysctl.conf > /dev/null << 'EOF'
+
+# OpenDLP Security Hardening - $(date)
+net.ipv4.ip_forward = 0
+net.ipv6.conf.all.forwarding = 0
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_max_syn_backlog = 2048
+net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_syn_retries = 5
+net.ipv4.icmp_echo_ignore_all = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.conf.all.rp_filter = 1
+EOF
+    fi
     
     # Apply sysctl settings
     print_step "  [2/4] Applying sysctl settings..."
