@@ -1,0 +1,33 @@
+# SSH Keys and Private Information
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+*.pub
+.ssh/
+
+# Personal Information
+*_private*
+*_secret*
+config.local
+
+# Logs with potential PII
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# Installation logs (may contain IPs)
+/tmp/opendlp_install_*.log
